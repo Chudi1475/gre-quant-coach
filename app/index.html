@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GRE Quant Coach</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">∑</div>
+      <div class="brand-text">
+        <div class="brand-title">GRE Quant Coach</div>
+        <div class="brand-sub">target band 165–170</div>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <button class="nav-item" data-view="dashboard"><span class="nav-ic">◧</span>Dashboard</button>
+      <button class="nav-item" data-view="learn"><span class="nav-ic">✎</span>Learn a topic</button>
+      <button class="nav-item" data-view="drill"><span class="nav-ic">⏱</span>Drill</button>
+      <button class="nav-item" data-view="section"><span class="nav-ic">▦</span>Full section</button>
+      <button class="nav-item" data-view="diagnostic"><span class="nav-ic">◎</span>Diagnostic</button>
+      <button class="nav-item" data-view="review"><span class="nav-ic">↻</span>Review &amp; leeches</button>
+      <button class="nav-item" data-view="coach"><span class="nav-ic">✦</span>Ask the coach</button>
+      <button class="nav-item" data-view="formulas"><span class="nav-ic">π</span>Formulas</button>
+      <button class="nav-item" data-view="status"><span class="nav-ic">◳</span>Readiness</button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <button class="ghost-btn" id="openCalc" title="On-screen calculator (E)">🖩 Calculator</button>
+      <button class="ghost-btn" id="openSettings" title="Settings">⚙ Settings</button>
+      <div class="key-status" id="keyStatus">No API key</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main">
+    <div id="view" class="view"></div>
+  </main>
+</div>
+
+<!-- Calculator modal -->
+<div class="modal-backdrop" id="calcModal" hidden>
+  <div class="calc" role="dialog" aria-label="Calculator">
+    <div class="calc-head">
+      <span>Calculator</span>
+      <button class="x" data-close="calcModal">✕</button>
+    </div>
+    <div class="calc-display" id="calcDisplay">0</div>
+    <div class="calc-mem" id="calcMem"></div>
+    <div class="calc-grid">
+      <button class="ck fn" data-k="MC">MC</button>
+      <button class="ck fn" data-k="MR">MR</button>
+      <button class="ck fn" data-k="M+">M+</button>
+      <button class="ck fn" data-k="M-">M-</button>
+      <button class="ck fn" data-k="sqrt">√</button>
+
+      <button class="ck fn" data-k="C">C</button>
+      <button class="ck fn" data-k="CE">CE</button>
+      <button class="ck fn" data-k="back">⌫</button>
+      <button class="ck fn" data-k="pm">±</button>
+      <button class="ck fn" data-k="pct">%</button>
+
+      <button class="ck" data-k="7">7</button>
+      <button class="ck" data-k="8">8</button>
+      <button class="ck" data-k="9">9</button>
+      <button class="ck op" data-k="/">÷</button>
+      <button class="ck op" data-k="*">×</button>
+
+      <button class="ck" data-k="4">4</button>
+      <button class="ck" data-k="5">5</button>
+      <button class="ck" data-k="6">6</button>
+      <button class="ck op" data-k="-">−</button>
+      <button class="ck op" data-k="+">+</button>
+
+      <button class="ck" data-k="1">1</button>
+      <button class="ck" data-k="2">2</button>
+      <button class="ck" data-k="3">3</button>
+      <button class="ck" data-k="0">0</button>
+      <button class="ck" data-k=".">.</button>
+
+      <button class="ck eq wide" data-k="=">=</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-backdrop" id="settingsModal" hidden>
+  <div class="sheet" role="dialog" aria-label="Settings">
+    <div class="sheet-head">
+      <span>Settings</span>
+      <button class="x" data-close="settingsModal">✕</button>
+    </div>
+    <div class="sheet-body">
+      <label class="field">
+        <span class="field-label">Anthropic API key</span>
+        <span class="field-hint">Stored only on this computer (in your browser). Get one at console.anthropic.com → API Keys. Required for live problems, teaching, and grading help.</span>
+        <div class="key-row">
+          <input type="password" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off" spellcheck="false" />
+          <button class="ghost-btn" id="toggleKey" type="button">Show</button>
+        </div>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Model</span>
+        <span class="field-hint">Opus 4.8 is the best balance of accuracy and speed for tutoring. Sonnet is faster/cheaper. Fable 5 is the most capable but noticeably slower.</span>
+        <select id="modelSelect">
+          <option value="claude-opus-4-8">Claude Opus 4.8 — recommended</option>
+          <option value="claude-sonnet-4-6">Claude Sonnet 4.6 — faster &amp; cheaper</option>
+          <option value="claude-fable-5">Claude Fable 5 — most capable (slower)</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Coaching track</span>
+        <select id="trackSelect">
+          <option value="chase-170">Chase 170 — maximum score</option>
+          <option value="high-roi-165">High-ROI 165+ — efficient</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Target test date</span>
+        <input type="date" id="targetDate" />
+      </label>
+
+      <div class="field">
+        <span class="field-label">Your progress</span>
+        <span class="field-hint">All progress lives in this browser. Back it up or move it to another computer here.</span>
+        <div class="btn-row">
+          <button class="ghost-btn" id="exportData">Export backup</button>
+          <button class="ghost-btn" id="importData">Import backup</button>
+          <button class="ghost-btn danger" id="resetData">Reset all progress</button>
+        </div>
+        <input type="file" id="importFile" accept="application/json" hidden />
+      </div>
+
+      <div class="sheet-actions">
+        <button class="primary-btn" id="saveSettings">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" hidden></div>
+
+<!-- Scripts: classic (file://-safe), dependency order -->
+<script src="js/seed.js"></script>
+<script src="js/store.js"></script>
+<script src="js/prompts.js"></script>
+<script src="js/api.js"></script>
+<script src="js/calculator.js"></script>
+<script src="js/render.js"></script>
+<script src="js/questions.js"></script>
+<script src="js/views.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# Learner state snapshots / backups — may exist locally; never commit (can contain settings)
+gre-quant/progress/app-state.latest.json
+*.latest.json
+gre-coach-state*.json
+gre-coach-backup*.json
+
+# Daily run logs
+gre-quant/daily/*.log
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store
+desktop.ini
