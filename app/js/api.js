@@ -93,6 +93,9 @@
     if (stopReason === "refusal") {
       throw new Error("The model declined this request. Try rephrasing, or switch the model in Settings.");
     }
+    if (stopReason === "max_tokens" && opts.schema) {
+      throw new Error("The problem set was too long and got cut off. Try generating fewer questions.");
+    }
     return text;
   }
 
@@ -101,12 +104,64 @@
     try { return await fn(); }
     catch (e) {
       if (e.name === "AbortError") throw e;
-      if (/rate limited|server error|Network error/i.test(e.message)) {
-        await new Promise(r => setTimeout(r, 1500));
+      if (/rate limited|server error|Network error|overloaded/i.test(e.message)) {
+        await new Promise(r => setTimeout(r, 1800));
         return await fn();
       }
       throw e;
     }
+  }
+
+  // numeric-answer sanity check for validation
+  function numericish(s) {
+    if (s == null) return false;
+    const x = String(s).replace(/[,\s$%]/g, "").split("/")[0];
+    return x !== "" && isFinite(parseFloat(x));
+  }
+
+  // drop malformed problems and coerce each to a real store topic key + matching area
+  function validateAndClean(list, requested) {
+    const valid = GRE.store.topics();
+    const titleToKey = {};
+    Object.keys(valid).forEach(k => { titleToKey[valid[k].title.toLowerCase()] = k; });
+    const QC = ["Quantity A is greater", "Quantity B is greater", "The two quantities are equal",
+                "The relationship cannot be determined from the information given"];
+    const out = [];
+    list.forEach((p, i) => {
+      if (!p || !p.type || !p.stem) return;
+      // coerce topic to a real key
+      let topic = p.topic;
+      if (!valid[topic]) {
+        topic = titleToKey[String(p.topic || "").toLowerCase()] ||
+                (requested && requested[i % requested.length]) ||
+                Object.keys(valid).find(k => valid[k].area === p.area) ||
+                (requested && requested[0]) || "integer_properties";
+      }
+      p.topic = topic;
+      p.area = valid[topic].area; // keep area consistent with the keyed topic
+      p.choices = Array.isArray(p.choices) ? p.choices : [];
+      p.correct = Array.isArray(p.correct) ? p.correct.filter(n => Number.isInteger(n)) : [];
+      p.acceptedAnswers = Array.isArray(p.acceptedAnswers) ? p.acceptedAnswers : [];
+      if (typeof p.estTimeSec !== "number" || p.estTimeSec <= 0) p.estTimeSec = 90;
+
+      if (p.type === "QC") {
+        p.choices = QC.slice();
+        if (!(p.correct.length === 1 && p.correct[0] >= 0 && p.correct[0] <= 3)) return;
+      } else if (p.type === "MC_single") {
+        if (p.choices.length < 2) return;
+        if (!(p.correct.length === 1 && p.correct[0] >= 0 && p.correct[0] < p.choices.length)) return;
+      } else if (p.type === "MC_multi") {
+        if (p.choices.length < 2) return;
+        const set = Array.from(new Set(p.correct)).filter(n => n >= 0 && n < p.choices.length);
+        if (set.length < 1) return;
+        p.correct = set.sort((a, b) => a - b);
+      } else if (p.type === "NumericEntry") {
+        p.choices = []; p.correct = [];
+        if (!numericish(p.numericAnswer)) return;
+      } else return;
+      out.push(p);
+    });
+    return out;
   }
 
   // Generate verified problems via structured output. Returns array of problems.
@@ -126,9 +181,11 @@
     catch (e) {
       const m = text.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("The coach returned an unreadable problem set. Try again.");
-      obj = JSON.parse(m[0]);
+      try { obj = JSON.parse(m[0]); }
+      catch (e2) { throw new Error("The problem set came back incomplete. Try again (or fewer questions)."); }
     }
-    const list = (obj && obj.problems) || [];
+    let list = validateAndClean(((obj && obj.problems) || []), opts.topicKeys);
+    if (!list.length) throw new Error("No valid problems came back. Try again.");
     list.forEach((p, i) => { p.uid = (p.id || "p") + "-" + Date.now() + "-" + i; });
     return list;
   }
@@ -142,5 +199,5 @@
     }));
   }
 
-  GRE.api = { call, problems, chat };
+  GRE.api = { call, problems, chat, _validate: validateAndClean };
 })();

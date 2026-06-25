@@ -4,6 +4,8 @@
   const r = GRE.r;
   const el = r.el;
   const $view = () => document.getElementById("view");
+  const COVERAGE12 = "Across these 12 questions include at least 2 Quantitative Comparison, at least 1 select-all-that-apply, and at least 1 Numeric Entry, and cover all four content areas (Arithmetic, Algebra, Geometry, Data Analysis) at least twice each. Mirror the real ETS balance (about half QC).";
+  const COVERAGE15 = "Across these 15 questions include at least 3 Quantitative Comparison, at least 1 select-all-that-apply, and at least 2 Numeric Entry, and cover all four content areas at least 3 times each. Mirror the real ETS balance.";
 
   function daysToTest() {
     const d = GRE.store.settings().targetDate;
@@ -26,6 +28,7 @@
   async function generateAndRun(mount, cfg) {
     if (!GRE.store.hasKey()) { GRE.app.openSettings(); return; }
     const ctrl = new AbortController();
+    GRE._activeGen = ctrl; // so navigating away aborts an in-flight generation
     const load = el("div", "gen-load");
     const start = Date.now();
     let timer = setInterval(() => {
@@ -42,7 +45,7 @@
     mount.innerHTML = ""; mount.appendChild(load);
 
     try {
-      const problems = await GRE.api.problems(cfg.userText, { signal: ctrl.signal, effort: cfg.effort });
+      const problems = await GRE.api.problems(cfg.userText, { signal: ctrl.signal, effort: cfg.effort, topicKeys: cfg.topicKeys });
       clearInterval(timer);
       if (!problems.length) { mount.innerHTML = "<div class='banner warn'>The coach returned no problems. Try again.</div>"; return; }
       GRE.quiz.create(mount, problems, {
@@ -297,6 +300,7 @@
           const mount = el("div", "panel"); v.appendChild(mount);
           mount.scrollIntoView({ behavior: "smooth" });
           generateAndRun(mount, {
+            topicKeys: [topicKey],
             userText: GRE.prompts.genProblems({ topicKeys: [topicKey], count: 6, intro: "Generate timed practice for the topic just taught." }),
             mode: "practice", title: "Practice · " + GRE.store.titleOf(topicKey),
             subtitle: "Immediate feedback after each question.",
@@ -341,6 +345,7 @@
       if (preTopic) { while (keys.length < n) keys.push(preTopic); }
       mount.hidden = false; mount.scrollIntoView({ behavior: "smooth" });
       generateAndRun(mount, {
+        topicKeys: keys,
         userText: GRE.prompts.genProblems({ topicKeys: keys, count: n, difficulty: diff || undefined }),
         mode: "practice", title: "Drill" + (area ? " · " + area : ""),
         subtitle: keys.slice(0, 4).map(k => GRE.store.titleOf(k)).join(", ") + (keys.length > 4 ? "…" : ""),
@@ -371,16 +376,17 @@
 
     start.addEventListener("click", () => {
       intro.hidden = true;
-      const keys = GRE.store.pickTopics(12);
+      const keys = GRE.store.pickTopics(12, { stratify: true });
       generateAndRun(mount, {
         loadingMsg: "Building Section 1…",
-        userText: GRE.prompts.genProblems({ topicKeys: keys, count: 12, qcFirst: true, difficulty: "medium",
+        topicKeys: keys,
+        userText: GRE.prompts.genProblems({ topicKeys: keys, count: 12, qcFirst: true, difficulty: "medium", coverage: COVERAGE12,
           intro: "Generate Section 1 of an adaptive GRE Quant test: 12 questions of moderate difficulty, all four question types, all four content areas." }),
         mode: "exam", sectionSeconds: 21 * 60, title: "Section 1", subtitle: "12 questions · 21 minutes",
         onFinish: (res, m) => {
           const pct = res.correct / res.total;
           const strong = pct >= 0.72;
-          const diff2 = strong ? "hard" : (pct >= 0.5 ? "medium" : "easy");
+          const diff2 = strong ? "hard" : "medium";
           examReview(res, m, {
             label: "Section 1",
             banner: strong
@@ -392,10 +398,11 @@
               const v2 = $view(); v2.innerHTML = "";
               v2.appendChild(el("h1", "page-h", "Section 2"));
               const m2 = el("div"); v2.appendChild(m2);
-              const keys2 = GRE.store.pickTopics(15);
+              const keys2 = GRE.store.pickTopics(15, { stratify: true });
               generateAndRun(m2, {
                 loadingMsg: "Building Section 2 (" + diff2 + ")…",
-                userText: GRE.prompts.genProblems({ topicKeys: keys2, count: 15, qcFirst: true, difficulty: diff2,
+                topicKeys: keys2,
+                userText: GRE.prompts.genProblems({ topicKeys: keys2, count: 15, qcFirst: true, difficulty: diff2, coverage: COVERAGE15,
                   intro: "Generate Section 2 of an adaptive GRE Quant test at " + diff2 + " difficulty: 15 questions, all four question types, all four content areas." }),
                 mode: "exam", sectionSeconds: 26 * 60, title: "Section 2", subtitle: "15 questions · 26 minutes · " + diff2,
                 onFinish: (res2, m2b) => {
@@ -434,10 +441,11 @@
 
     start.addEventListener("click", () => {
       intro.hidden = true;
-      const keys1 = GRE.store.pickTopics(12);
+      const keys1 = GRE.store.pickTopics(12, { stratify: true });
       generateAndRun(mount, {
         loadingMsg: "Building diagnostic Section 1…",
-        userText: GRE.prompts.genProblems({ topicKeys: keys1, count: 12, qcFirst: true,
+        topicKeys: keys1,
+        userText: GRE.prompts.genProblems({ topicKeys: keys1, count: 12, qcFirst: true, coverage: COVERAGE12,
           intro: "Generate Section 1 of a 27-question GRE Quant diagnostic: 12 moderate questions spanning all four areas and all four question types." }),
         mode: "exam", sectionSeconds: 21 * 60, title: "Diagnostic · Section 1", subtitle: "12 questions · 21 minutes",
         onFinish: (res1, m1) => {
@@ -448,10 +456,11 @@
               const v2 = $view(); v2.innerHTML = "";
               v2.appendChild(el("h1", "page-h", "Diagnostic · Section 2"));
               const m2 = el("div"); v2.appendChild(m2);
-              const keys2 = GRE.store.pickTopics(15);
+              const keys2 = GRE.store.pickTopics(15, { stratify: true });
               generateAndRun(m2, {
                 loadingMsg: "Building diagnostic Section 2…",
-                userText: GRE.prompts.genProblems({ topicKeys: keys2, count: 15, qcFirst: true,
+                topicKeys: keys2,
+                userText: GRE.prompts.genProblems({ topicKeys: keys2, count: 15, qcFirst: true, coverage: COVERAGE15,
                   intro: "Generate Section 2 of a 27-question GRE Quant diagnostic: 15 questions spanning all four areas and all four question types, slightly harder." }),
                 mode: "exam", sectionSeconds: 26 * 60, title: "Diagnostic · Section 2", subtitle: "15 questions · 26 minutes",
                 onFinish: (res2, m2b) => {
@@ -497,6 +506,7 @@
       while (keys.length < 6 && due.length) keys.push(due[keys.length % due.length].key);
       const mount = el("div", "panel"); v.appendChild(mount); mount.scrollIntoView({ behavior: "smooth" });
       generateAndRun(mount, {
+        topicKeys: keys,
         userText: GRE.prompts.genProblems({ topicKeys: keys, count: Math.min(8, Math.max(6, keys.length)), intro: "Generate targeted re-test problems for these weak/leech topics." }),
         mode: "practice", title: "Leech & due re-test",
         onFinish: (res, m) => practiceSummary(res, m)

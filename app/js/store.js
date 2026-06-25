@@ -126,6 +126,24 @@
   // pick N topic keys for a drill, optional area filter, weighted by priority
   function pickTopics(n, opts) {
     opts = opts || {};
+    // area-balanced selection for full sections / diagnostics
+    if (opts.stratify && !opts.area && !opts.onlyLeeches) {
+      const areas = GRE.SEED.areas;
+      const per = Math.floor(n / areas.length);
+      const extra = n - per * areas.length;
+      const ranked = {};
+      const areaP = areas.map(a => {
+        const ts = Object.values(state.topics).filter(t => t.area === a);
+        ranked[a] = ts.map(t => ({ k: t.key, p: priority(t) + Math.random() * 8 }))
+                      .sort((x, y) => y.p - x.p).map(x => x.k);
+        return { a, avgP: ts.reduce((s, t) => s + priority(t), 0) / (ts.length || 1) };
+      }).sort((x, y) => y.avgP - x.avgP);
+      const alloc = {}; areas.forEach(a => alloc[a] = per);
+      for (let i = 0; i < extra; i++) alloc[areaP[i % areas.length].a]++;
+      const out = [];
+      areas.forEach(a => { for (let i = 0; i < alloc[a] && ranked[a].length; i++) out.push(ranked[a][i % ranked[a].length]); });
+      return out.slice(0, n);
+    }
     let keys = Object.keys(state.topics);
     if (opts.area) keys = keys.filter(k => state.topics[k].area === opts.area);
     if (opts.onlyLeeches) keys = keys.filter(k => state.topics[k].leech);
@@ -161,7 +179,8 @@
     if (t.missStreak >= 2) t.leech = true;
     if (t.leech && t.correctStreak >= 2) t.leech = false;
 
-    state.history.unshift({ ts: nowISO(), topic: topicKey, correct, seconds, type: meta && meta.type });
+    state.history.unshift({ ts: nowISO(), topic: topicKey, correct, seconds,
+      type: meta && meta.type, difficulty: (meta && meta.difficulty) || "medium" });
     state.history = state.history.slice(0, 400);
 
     if (!correct && meta) {
@@ -221,29 +240,38 @@
   }
 
   // ---- readiness band estimate (rough heuristic; official POWERPREP is the truth) ----
+  // Difficulty-weighted and deliberately conservative: a high band must be EARNED on
+  // medium/hard items, not run up on easy ones.
   function readiness() {
-    let wAcc = 0, wN = 0, mSum = 0, mN = 0, seen = 0, total = 0, totalAtt = 0;
+    let mSum = 0, mN = 0, seen = 0, total = 0, totalAtt = 0;
     for (const k in state.topics) {
       const t = state.topics[k]; total++;
       totalAtt += t.attempts;
-      if (t.attempts) {
-        seen++;
-        wAcc += (t.correct / t.attempts) * t.attempts;
-        wN += t.attempts;
-        const m = mastery(t); if (m != null) { mSum += m; mN += 1; }
-      }
+      if (t.attempts) { seen++; const m = mastery(t); if (m != null) { mSum += m; mN += 1; } }
     }
     const coverage = total ? seen / total : 0;
     if (totalAtt < 12) {
       return { band: null, low: null, high: null, coverage, attempts: totalAtt,
                note: "Take the diagnostic (or drill ~12+ questions) for a first estimate." };
     }
-    const acc = wN ? wAcc / wN : 0;
-    const avgMastery = mN ? mSum / mN / 100 : acc;
-    // combine accuracy, mastery, and coverage; curve toward realistic bands
-    const combined = 0.55 * acc + 0.30 * avgMastery + 0.15 * coverage;
-    // curve: 0.5 -> ~150, 0.7 -> ~159, 0.85 -> ~165, 0.95 -> ~168
-    let band = 130 + Math.round(40 * Math.pow(combined, 0.85));
+    // difficulty-weighted accuracy from attempt history
+    const dW = { easy: 0.7, medium: 1.0, hard: 1.4 };
+    let wCorrect = 0, wTotal = 0, mhSeen = 0, hardSeen = 0;
+    state.history.forEach(h => {
+      const w = dW[h.difficulty] || 1.0;
+      wTotal += w; if (h.correct) wCorrect += w;
+      if (h.difficulty === "medium" || h.difficulty === "hard") mhSeen++;
+      if (h.difficulty === "hard") hardSeen++;
+    });
+    const wacc = wTotal ? wCorrect / wTotal : 0;
+    const avgMastery = mN ? mSum / mN / 100 : wacc;
+    const combined = 0.60 * wacc + 0.25 * avgMastery + 0.15 * coverage;
+    // exponent > 1 => conservative (top bands are hard to reach): 0.7->~155, 0.85->~162, 0.95->~167
+    let band = 130 + Math.round(40 * Math.pow(combined, 1.15));
+    // exposure caps: you can't claim a top band without proving it on harder items
+    const mhShare = state.history.length ? mhSeen / state.history.length : 0;
+    if (mhShare < 0.5) band = Math.min(band, 158);
+    if (hardSeen < 5) band = Math.min(band, 164);
     band = Math.max(130, Math.min(170, band));
     const spread = totalAtt < 30 ? 4 : (totalAtt < 80 ? 3 : 2);
     state.lastEstimate = { band, as_of: todayISO() };

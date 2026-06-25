@@ -15,23 +15,30 @@
   // ---- numeric parsing for numeric-entry grading ----
   function parseNum(s) {
     if (s == null) return NaN;
-    let x = String(s).trim().replace(/,/g, "").replace(/\s+/g, "");
+    let x = String(s).trim().replace(/[$,]/g, "");
     if (x === "") return NaN;
     let pct = false;
-    if (x.endsWith("%")) { pct = true; x = x.slice(0, -1); }
-    let val;
-    if (/^-?\d*\.?\d+\/-?\d*\.?\d+$/.test(x)) {
-      const [a, b] = x.split("/");
-      val = parseFloat(a) / parseFloat(b);
+    if (x.endsWith("%")) { pct = true; x = x.slice(0, -1).trim(); }
+    let val = NaN;
+    let m = x.match(/^(-?\d+)\s+(\d+)\/(\d+)$/); // mixed number "1 1/2"
+    if (m) {
+      const whole = parseInt(m[1], 10), num = parseInt(m[2], 10), den = parseInt(m[3], 10);
+      if (den !== 0) val = (whole < 0 ? -1 : 1) * (Math.abs(whole) + num / den);
     } else {
-      val = parseFloat(x);
+      const c = x.replace(/\s+/g, "");
+      if (/^-?\d*\.?\d+\/-?\d*\.?\d+$/.test(c)) {
+        const parts = c.split("/");
+        val = parseFloat(parts[0]) / parseFloat(parts[1]);
+      } else {
+        val = parseFloat(c);
+      }
     }
-    if (pct) val = val / 100;
+    if (pct && !isNaN(val)) val = val / 100;
     return val;
   }
   function numEqual(a, b) {
     if (isNaN(a) || isNaN(b)) return false;
-    const tol = Math.max(1e-6, Math.abs(b) * 1e-4);
+    const tol = Number.isInteger(b) ? 1e-6 : Math.max(1e-3, Math.abs(b) * 1e-3);
     return Math.abs(a - b) <= tol;
   }
 
@@ -58,12 +65,16 @@
     return Array.isArray(problem.correct) && problem.correct[0] === ans;
   }
 
+  // authoritative label derived from the grading key (never trust the model's free-text answerLabel)
   function answerLabel(problem) {
-    if (problem.answerLabel) return problem.answerLabel;
-    if (problem.type === "NumericEntry") return problem.numericAnswer;
+    if (problem.type === "NumericEntry") return problem.numericAnswer || (problem.answerLabel || "");
     if (problem.type === "MC_multi") return (problem.correct || []).map(letter).join(", ");
-    if (Array.isArray(problem.correct)) return letter(problem.correct[0]);
-    return "";
+    if (Array.isArray(problem.correct) && problem.correct.length) {
+      const i = problem.correct[0];
+      const txt = (problem.choices && problem.choices[i] != null) ? " — " + problem.choices[i] : "";
+      return letter(i) + txt;
+    }
+    return problem.answerLabel || "";
   }
   function userLabel(problem, ans) {
     if (ans == null || (Array.isArray(ans) && ans.length === 0) || ans === "") return "(skipped)";
@@ -109,7 +120,7 @@
     };
   }
 
-  function feedbackPanel(problem, ans, correct) {
+  function feedbackPanel(problem, ans, correct, elapsedSec) {
     const fb = r.el("div", "q-feedback " + (correct ? "good" : "bad"));
     const verdict = correct ? "✓ Correct" : (ans == null || ans === "" || (Array.isArray(ans) && !ans.length) ? "— Skipped" : "✗ Not quite");
     fb.appendChild(r.el("div", "verdict", verdict));
@@ -121,7 +132,7 @@
     const sol = r.el("details", "fb-details");
     sol.appendChild(r.el("summary", null, "Full solution"));
     sol.appendChild(r.el("div", "fb-sol", r.mathText(problem.solution)));
-    if (problem.verification) sol.appendChild(r.el("div", "fb-verify", "✓ Verified: " + r.mathText(problem.verification)));
+    if (problem.verification) sol.appendChild(r.el("div", "fb-verify", "Second-method check: " + r.mathText(problem.verification)));
     fb.appendChild(sol);
 
     // explain with coach
@@ -133,7 +144,7 @@
       explainBtn.disabled = true; explainBtn.textContent = "Coach is thinking…";
       explainOut.hidden = false; explainOut.innerHTML = "";
       try {
-        const prompt = GRE.prompts.explainProblem(problem, userLabel(problem, ans), correct);
+        const prompt = GRE.prompts.explainProblem(problem, userLabel(problem, ans), correct, elapsedSec);
         let acc = "";
         await GRE.api.chat([{ role: "user", content: prompt }], (delta, full) => {
           acc = full; explainOut.innerHTML = r.mdLite(full);
@@ -264,12 +275,12 @@
         mark.addEventListener("click", () => { marked[idx] = !marked[idx]; renderPalette(); mark.textContent = marked[idx] ? "✓ Marked" : "Mark for review"; mark.classList.toggle("active", marked[idx]); });
         actions.appendChild(mark);
         if (idx < N - 1) { const nx = r.el("button", "primary-btn", "Next →"); nx.addEventListener("click", () => { saveCurrent(); idx++; render(); }); actions.appendChild(nx); }
-        else { const fin = r.el("button", "primary-btn", "Finish & score"); fin.addEventListener("click", () => { saveCurrent(); confirmFinish(); }); actions.appendChild(fin); }
+        else { const fin = r.el("button", "primary-btn", "Finish & score"); fin.addEventListener("click", () => confirmFinish()); actions.appendChild(fin); }
       }
       body.appendChild(actions);
 
       if (mode === "practice" && submitted[idx]) {
-        body.appendChild(feedbackPanel(p, answers[idx], correctFlags[idx]));
+        body.appendChild(feedbackPanel(p, answers[idx], correctFlags[idx], times[idx]));
       }
       if (current.focus && !submitted[idx]) current.focus();
     }
@@ -290,7 +301,7 @@
       const ok = grade(p, answers[idx]);
       submitted[idx] = true; correctFlags[idx] = ok;
       GRE.store.recordAttempt(p.topic, ok, times[idx], {
-        type: p.type, stem: p.stem, yourAnswer: userLabel(p, answers[idx]),
+        type: p.type, difficulty: p.difficulty, stem: p.stem, yourAnswer: userLabel(p, answers[idx]),
         answerLabel: answerLabel(p), trap: p.trap
       });
       render();
@@ -317,7 +328,7 @@
         if (!submitted[i]) {
           submitted[i] = true;
           GRE.store.recordAttempt(problems[i].topic, ok, times[i] || (opts.sectionSeconds ? opts.sectionSeconds / N : 90), {
-            type: problems[i].type, stem: problems[i].stem,
+            type: problems[i].type, difficulty: problems[i].difficulty, stem: problems[i].stem,
             yourAnswer: userLabel(problems[i], answers[i]),
             answerLabel: answerLabel(problems[i]), trap: problems[i].trap
           });
@@ -333,6 +344,7 @@
 
     function finish() {
       if (finished) return; finished = true;
+      saveCurrent(); // capture the in-progress question's time/answer (e.g. on timer expiry)
       clearInterval(sectionTimer); clearInterval(qClock);
       gradeAll();
       const res = results();
@@ -347,11 +359,14 @@
       if (opts.onFinish) opts.onFinish(res, mount);
     }
 
+    const controller = { destroy: () => { finished = true; clearInterval(sectionTimer); clearInterval(qClock); } };
+    GRE.quiz._active = controller; // so navigation can stop a running timed section
+
     // boot
     if (mode === "exam" && opts.sectionSeconds) startSectionTimer();
     render();
 
-    return { destroy: () => { clearInterval(sectionTimer); clearInterval(qClock); } };
+    return controller;
   }
 
   GRE.quiz = { create: createQuiz, grade, answerLabel, userLabel, TYPE_LABEL, letter };

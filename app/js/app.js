@@ -6,6 +6,8 @@
 
   function go(view, arg) {
     if (!GRE.views[view]) view = "dashboard";
+    if (GRE.quiz && GRE.quiz._active) { try { GRE.quiz._active.destroy(); } catch (e) {} GRE.quiz._active = null; }
+    if (GRE._activeGen) { try { GRE._activeGen.abort(); } catch (e) {} GRE._activeGen = null; }
     currentView = view; currentArg = arg;
     document.querySelectorAll(".nav-item").forEach(b =>
       b.classList.toggle("active", b.getAttribute("data-view") === view));
