@@ -187,8 +187,19 @@
     v.appendChild(el("h1", "page-h", "Dashboard"));
     const line = rd.band
       ? "Estimated band <strong>" + rd.band + "</strong> vs target 165–170."
-      : "No estimate yet — run a diagnostic or a drill.";
+      : "No estimate yet — find your starting point below.";
     v.appendChild(el("div", "page-sub", line + (d != null ? "  " + (d >= 0 ? d + " days to test." : "Test date passed — update it in Settings.") : "")));
+
+    // cold-start call to action
+    if (!rd.band) {
+      const cta = el("div", "panel rec");
+      cta.appendChild(el("div", "panel-h", "👋 New here? Find your starting point"));
+      cta.innerHTML += "<p class='p'>Take a quick, untimed 12-question placement to see your estimated band and which areas to attack first. ~15 minutes, no pressure.</p>";
+      const cb = el("button", "primary-btn", "Find my level");
+      cb.addEventListener("click", () => GRE.app.go("diagnostic", "placement"));
+      cta.appendChild(cb);
+      v.appendChild(cta);
+    }
 
     const cards = el("div", "stat-cards");
     cards.appendChild(statCard("Estimated band", rd.band ? String(rd.band) : "—", rd.band ? rd.low + "–" + rd.high : "take diagnostic"));
@@ -424,23 +435,65 @@
   }
 
   // ---------- DIAGNOSTIC ----------
-  function diagnostic() {
+  function diagnostic(opts) {
     const v = $view(); v.innerHTML = "";
-    v.appendChild(el("h1", "page-h", "Diagnostic"));
-    v.appendChild(el("div", "page-sub", "27 questions, timed in the real 12 + 15 split, across all four areas and question types. Sets your baseline."));
+    v.appendChild(el("h1", "page-h", "Find your starting point"));
+    v.appendChild(el("div", "page-sub", "Not sure where you stand? Start here. Two ways to measure your level."));
     const bn = needKeyBanner(); if (bn) v.appendChild(bn);
 
-    const intro = el("div", "panel");
-    intro.appendChild(el("div", "panel-h", "Before you start"));
-    intro.innerHTML += "<p class='p'>This is two timed sections back-to-back (21 min, then 26 min). Treat it like the real thing: no notes, the on-screen calculator only, never leave a blank. It takes ~50 minutes.</p>";
-    const start = el("button", "primary-btn", "Start diagnostic");
-    intro.appendChild(start);
-    v.appendChild(intro);
+    const mount = el("div");
 
-    const mount = el("div"); v.appendChild(mount);
+    // --- Quick placement (recommended for a cold start) ---
+    const p1 = el("div", "panel rec");
+    p1.appendChild(el("div", "panel-h", "Quick placement — recommended"));
+    p1.innerHTML += "<p class='p'>12 questions, <strong>untimed</strong>, across all four areas, easy-to-medium. ~15 minutes, no pressure. You get your estimated starting band and the exact areas to attack first. Best if you're rusty or just beginning.</p>";
+    const b1 = el("button", "primary-btn", "Start quick placement");
+    p1.appendChild(b1);
+    v.appendChild(p1);
 
-    start.addEventListener("click", () => {
-      intro.hidden = true;
+    // --- Full timed diagnostic ---
+    const p2 = el("div", "panel");
+    p2.appendChild(el("div", "panel-h", "Full diagnostic"));
+    p2.innerHTML += "<p class='p'>27 questions in the real timed 12 + 15 split (~50 minutes). The most accurate baseline — do this once you're warmed up, or for a realistic dry run. No notes, calculator only, never leave a blank.</p>";
+    const b2 = el("button", "ghost-btn", "Start full diagnostic (timed)");
+    p2.appendChild(b2);
+    v.appendChild(p2);
+
+    v.appendChild(mount);
+
+    function startPlacement() {
+      p1.hidden = true; p2.hidden = true;
+      const keys = GRE.store.pickTopics(12, { stratify: true });
+      generateAndRun(mount, {
+        loadingMsg: "Building your placement…",
+        topicKeys: keys,
+        userText: GRE.prompts.genProblems({ topicKeys: keys, count: 12, qcFirst: true,
+          coverage: "Cover all four content areas (Arithmetic, Algebra, Geometry, Data Analysis) and include at least 2 Quantitative Comparison, 1 select-all-that-apply, and 1 Numeric Entry. Use a beginner-friendly mix: mostly EASY with a few MEDIUM, and NO hard items.",
+          intro: "Generate a gentle placement quiz to gauge a cold-start learner's current level: 12 questions, easy-to-medium, all four areas, all four question types." }),
+        mode: "exam", title: "Quick placement", subtitle: "12 questions · untimed · find your level",
+        onFinish: (res, m) => {
+          const rd = GRE.store.readiness();
+          const stats = GRE.store.areaStats();
+          const weak = GRE.SEED.areas.map(a => ({ a, acc: stats[a].accuracy }))
+            .filter(x => x.acc != null).sort((x, y) => x.acc - y.acc).slice(0, 3).map(x => x.a);
+          GRE.store.logSession("placement", "starting-point check", res.total, res.correct);
+          const first = GRE.store.dueList(1)[0];
+          examReview(res, m, {
+            label: "Placement (untimed)",
+            banner: "Your starting point: " +
+              (rd.band ? "estimated band <strong>" + rd.band + "</strong> (" + rd.low + "–" + rd.high + ")" : "scored " + res.correct + "/" + res.total) +
+              ".<br>Attack these areas first: <strong>" + (weak.length ? weak.join(", ") : "—") + "</strong>.<br>" +
+              "This is a gentle floor — your real ceiling shows once you drill harder questions. " + r.esc(rd.note),
+            bannerKind: "good",
+            nextLabel: first ? ("Learn " + first.title + " →") : null,
+            onNext: first ? (() => GRE.app.go("learn", first.key)) : null
+          });
+        }
+      });
+    }
+
+    function startFull() {
+      p1.hidden = true; p2.hidden = true;
       const keys1 = GRE.store.pickTopics(12, { stratify: true });
       generateAndRun(mount, {
         loadingMsg: "Building diagnostic Section 1…",
@@ -483,7 +536,12 @@
           });
         }
       });
-    });
+    }
+
+    b1.addEventListener("click", startPlacement);
+    b2.addEventListener("click", startFull);
+    if (opts === "placement") startPlacement();
+    else if (opts === "full") startFull();
   }
 
   // ---------- REVIEW & LEECHES ----------
