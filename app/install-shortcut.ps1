@@ -18,13 +18,17 @@ if (-not $edge) {
   try { $edge = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe' -ErrorAction Stop).'(default)' } catch {}
 }
 
+# dedicated profile -> own taskbar identity (not grouped with your browsing Edge) + isolated storage
+$udd = Join-Path $env:LOCALAPPDATA 'GREQuantCoach'
+$edgeArgs = '--app="' + $url + '" --user-data-dir="' + $udd + '" --no-first-run --no-default-browser-check --window-size=1200,860'
+
 $desktop = [Environment]::GetFolderPath('Desktop')
 $lnk = Join-Path $desktop 'GRE Quant Coach.lnk'
 $ws = New-Object -ComObject WScript.Shell
 $sc = $ws.CreateShortcut($lnk)
 if ($edge) {
   $sc.TargetPath = $edge
-  $sc.Arguments  = '--app="' + $url + '" --window-size=1200,860'
+  $sc.Arguments  = $edgeArgs
 } else {
   # no Edge -> open in default browser
   $sc.TargetPath = $url
@@ -43,7 +47,8 @@ $cmd = @"
 @echo off
 set "URL=$url"
 set "EDGE=$edge"
-if exist "%EDGE%" ( start "" "%EDGE%" --app="%URL%" --window-size=1200,860 ) else ( start "" "%URL%" )
+set "UDD=$udd"
+if exist "%EDGE%" ( start "" "%EDGE%" --app="%URL%" --user-data-dir="%UDD%" --no-first-run --no-default-browser-check --window-size=1200,860 ) else ( start "" "%URL%" )
 "@
 Set-Content -Path (Join-Path $appDir 'launch\Launch GRE Quant Coach.cmd') -Value $cmd -Encoding ASCII
 
