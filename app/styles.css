@@ -195,6 +195,7 @@ select,.topic-select{background:#121726;color:var(--text);border:1px solid var(-
 
 /* calculator */
 .modal-backdrop{position:fixed;inset:0;background:rgba(4,6,12,.6);backdrop-filter:blur(3px);display:grid;place-items:center;z-index:50}
+.modal-backdrop[hidden]{display:none}  /* author display: must re-assert hidden or modals never close */
 .calc{width:316px;background:#11141f;border:1px solid var(--border2);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.55);padding:14px}
 .calc-head{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:13px;color:var(--muted);margin-bottom:8px}
 .x{background:none;border:0;color:var(--muted);font-size:15px}
